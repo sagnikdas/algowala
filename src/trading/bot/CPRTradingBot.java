@@ -1,18 +1,23 @@
 package trading.bot;
 
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.logging.Logger;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import historical.HistoricalDataFetcher;
 import login.ZerodhaAutoLogin;
+import model.CandleData;
 
 public class CPRTradingBot {
     private static final Logger logger = Logger.getLogger(CPRTradingBot.class.getName());
     
     // Core components
-    //private final ZerodhaAutoLogin zerodhaLogin;
     private final HistoricalDataFetcher historicalFetcher;
     private final CPRCalculator cprCalculator;
     private final InstrumentManager instrumentManager;
@@ -29,8 +34,7 @@ public class CPRTradingBot {
     private static final double MAX_DAILY_LOSS_PERCENT = 2.0; // 2% max daily loss
     private static final double RISK_PER_TRADE_PERCENT = 1.0; // 1% risk per trade
     
-    public CPRTradingBot(ZerodhaAutoLogin zerodhaLogin, HistoricalDataFetcher historicalFetcher) {
-        this.zerodhaLogin = zerodhaLogin;
+    public CPRTradingBot(HistoricalDataFetcher historicalFetcher) {
         this.historicalFetcher = historicalFetcher;
         this.cprCalculator = new CPRCalculator();
         this.instrumentManager = new InstrumentManager();
@@ -87,23 +91,26 @@ public class CPRTradingBot {
     private boolean performDailyLogin() {
         try {
             logger.info("Performing Zerodha login...");
-            boolean loginSuccess = zerodhaLogin.login();
-            
-            if (loginSuccess) {
-                String accessToken = zerodhaLogin.getAccessToken();
-                if (accessToken != null && !accessToken.isEmpty()) {
-                    isLoggedIn = true;
-                    logger.info("Login successful. Access token obtained.");
-                    
-                    // Reset daily counters
-                    positionManager.resetDailyCounters();
-                    return true;
-                }
+
+            String jsonContent = Files.readString(Paths.get("login/access_token.json"));
+            Gson gson = new Gson();
+            JsonObject jsonObject = gson.fromJson(jsonContent, JsonObject.class);
+            String accessToken = jsonObject.get("access_token").getAsString();
+
+
+            if (accessToken != null && !accessToken.isEmpty()) {
+                isLoggedIn = true;
+                logger.info("Login successful. Access token obtained.");
+
+                // Reset daily counters
+                positionManager.resetDailyCounters();
+                return true;
             }
-            
+
+
             logger.warning("Login failed or access token not available.");
             return false;
-            
+
         } catch (Exception e) {
             logger.severe("Login error: " + e.getMessage());
             return false;
@@ -133,18 +140,23 @@ public class CPRTradingBot {
         LocalDate previousDay = today.minusDays(1);
         
         List<String> watchlist = instrumentManager.getCPRWatchlist();
-        
+
+        String interval = "day"; // minute, 3minute, 5minute, 10minute, 15minute, 30minute, 60minute, day
+
+        LocalDateTime fromDate = LocalDateTime.of(2025, 8, 20, 9, 15, 0);
+        LocalDateTime toDate = LocalDateTime.of(2025, 9, 11, 15, 30, 0);
+
         for (String instrumentToken : watchlist) {
             try {
                 // Get historical data for previous day
-                Map<String, Object> ohlcData = historicalFetcher.getOHLCData(instrumentToken, previousDay);
+                List<CandleData> ohlcData = historicalFetcher.fetchHistoricalData(instrumentToken, interval, fromDate, toDate, false,false);
                 
                 if (ohlcData != null) {
-                    double high = (Double) ohlcData.get("high");
-                    double low = (Double) ohlcData.get("low");
-                    double close = (Double) ohlcData.get("close");
+                    double high = ohlcData.get(0).getHigh();
+                    double low = ohlcData.get(0).getLow();
+                    double close = ohlcData.get(0).getClose();
                     
-                    CPRLevels cprLevels = cprCalculator.calculateDailyCPR(today, high, low, close);
+                    CPRLevels cprLevels = cprCalculator.calculateCPR(high, low, close);
                     dailyCPRCache.put(instrumentToken, cprLevels);
                     
                     logger.info("CPR calculated for " + instrumentToken + ": " + cprLevels);
@@ -351,9 +363,6 @@ public class CPRTradingBot {
             orderParams.put("product", "MIS"); // Intraday
             orderParams.put("order_type", "LIMIT");
             
-            // Call zerodhaLogin.placeOrder(orderParams) - implement this method
-            return zerodhaLogin.placeOrder(orderParams);
-            
         } catch (Exception e) {
             logger.severe("Order placement error: " + e.getMessage());
             return false;
@@ -495,11 +504,10 @@ public class CPRTradingBot {
     public static void main(String[] args) {
         try {
             // Initialize components
-            ZerodhaAutoLogin zerodhaLogin = new ZerodhaAutoLogin();
             HistoricalDataFetcher historicalFetcher = new HistoricalDataFetcher();
             
             // Create and start bot
-            CPRTradingBot bot = new CPRTradingBot(zerodhaLogin, historicalFetcher);
+            CPRTradingBot bot = new CPRTradingBot(historicalFetcher);
             
             // Add shutdown hook
             Runtime.getRuntime().addShutdownHook(new Thread(bot::stopTrading));

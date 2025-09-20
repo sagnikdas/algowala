@@ -9,9 +9,13 @@ import java.net.http.HttpResponse;
 import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonArray;
+import model.CandleData;
 
 public class HistoricalDataFetcher {
 
@@ -28,9 +32,9 @@ public class HistoricalDataFetcher {
     }
 
     // Fetch historical data for an instrument
-    public void fetchHistoricalData(String instrumentToken, String interval,
-                                   LocalDateTime fromDate, LocalDateTime toDate,
-                                   boolean includeContinuous, boolean includeOI) throws IOException, InterruptedException {
+    public List<CandleData> fetchHistoricalData(String instrumentToken, String interval,
+                                                LocalDateTime fromDate, LocalDateTime toDate,
+                                                boolean includeContinuous, boolean includeOI) throws IOException, InterruptedException {
 
         // Load access token
         loadAccessToken();
@@ -43,12 +47,12 @@ public class HistoricalDataFetcher {
         // Build URL
         StringBuilder urlBuilder = new StringBuilder();
         urlBuilder.append(API_BASE_URL)
-                  .append("/instruments/historical/")
-                  .append(instrumentToken)
-                  .append("/")
-                  .append(interval)
-                  .append("?from=").append(fromDateStr.replace(" ", "+"))
-                  .append("&to=").append(toDateStr.replace(" ", "+"));
+                .append("/instruments/historical/")
+                .append(instrumentToken)
+                .append("/")
+                .append(interval)
+                .append("?from=").append(fromDateStr.replace(" ", "+"))
+                .append("&to=").append(toDateStr.replace(" ", "+"));
 
         if (includeContinuous) {
             urlBuilder.append("&continuous=1");
@@ -71,6 +75,7 @@ public class HistoricalDataFetcher {
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
         // Parse and display response
+        List<CandleData> candleDataList = null;
         if (response.statusCode() == 200) {
             Gson gson = new Gson();
             JsonObject responseJson = gson.fromJson(response.body(), JsonObject.class);
@@ -93,11 +98,12 @@ public class HistoricalDataFetcher {
                 }
                 System.out.println("**********************************************************************************************************");
 
+                candleDataList = new ArrayList<>();
                 // Print candle data
                 for (int i = 0; i < candles.size(); i++) {
                     JsonArray candle = candles.get(i).getAsJsonArray();
 
-                    String timestamp = candle.get(0).getAsString();
+                    long timestamp = candle.get(0).getAsLong();
                     double open = candle.get(1).getAsDouble();
 
                     double high = candle.get(2).getAsDouble();
@@ -105,14 +111,21 @@ public class HistoricalDataFetcher {
                     double close = candle.get(4).getAsDouble();
                     long volume = candle.get(5).getAsLong();
 
+                    CandleData candleData;// = new CandleData(open,high,low,close,volume,timestamp);
+
                     if (includeOI && candle.size() > 6) {
                         long oi = candle.get(6).getAsLong();
                         System.out.printf("%s\t%.2f\t%.2f\t%.2f\t%.2f\t%d\t%d%n",
-                                        timestamp, open, high, low, close, volume, oi);
+                                timestamp, open, high, low, close, volume, oi);
+
+                        candleData = new CandleData(open, high, low, close, volume, oi, timestamp);
                     } else {
                         System.out.printf("%s\t%.2f\t%.2f\t%.2f\t%.2f\t%d%n",
-                                        timestamp, open, high, low, close, volume);
+                                timestamp, open, high, low, close, volume);
+                        candleData = new CandleData(open, high, low, close, volume, 0L, timestamp);
                     }
+
+                    candleDataList.add(candleData);
                 }
             } else {
                 System.err.println("API Error: " + responseJson.get("message").getAsString());
@@ -121,6 +134,8 @@ public class HistoricalDataFetcher {
             System.err.println("HTTP Error: " + response.statusCode());
             System.err.println("Response: " + response.body());
         }
+        return candleDataList;
+
     }
 
     // Main method with example usage

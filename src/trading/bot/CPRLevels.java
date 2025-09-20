@@ -77,4 +77,14 @@ public class CPRLevels {
             pivot, r3, r2, r1, s1, s2, s3, tc, bc, pdh, pdl, getCPRWidth()
         );
     }
+
+    public boolean isPriceAboveCPR(double currentPrice) {
+        //TODO check if the currentPrice is above CPR level
+        return pivot > currentPrice;
+    }
+
+    public double getBottomCentral() {
+        //TODO get the bottom central cpr
+        return 0D;
+    }
 }
