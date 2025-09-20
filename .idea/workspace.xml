@@ -4,11 +4,22 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c2d25c29-7ab7-409e-9f62-d42be398e59d" name="Changes" comment="" />
+    <list default="true" id="c2d25c29-7ab7-409e-9f62-d42be398e59d" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ZerodhaAutoLogin.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/login/ZerodhaAutoLogin.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/trading/bot/CPRTradingBot.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/trading/bot/CPRTradingBot.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/trading/bot/InstrumentManager.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/trading/bot/InstrumentManager.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/trading/bot/PositionManager.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/trading/bot/PositionManager.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/trading/bot/TradingSignal.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/trading/bot/TradingSignal.java" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="HighlightingSettingsPerFile">
     <setting file="jar://$MAVEN_REPOSITORY$/com/zerodhatech/kiteconnect/kiteconnect/3.5.1/kiteconnect-3.5.1.jar!/com/zerodhatech/kiteconnect/KiteConnect.class" root0="SKIP_INSPECTION" />
@@ -31,23 +42,25 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;Application.HistoricalDataFetcher.executor&quot;: &quot;Run&quot;,
-    &quot;Application.ZerodhaAutoLogin.executor&quot;: &quot;Run&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;onboarding.tips.debug.path&quot;: &quot;/Users/sagnikdas/IdeaProjects/algowala/src/Main.java&quot;,
-    &quot;project.structure.last.edited&quot;: &quot;Modules&quot;,
-    &quot;project.structure.proportion&quot;: &quot;0.0&quot;,
-    &quot;project.structure.side.proportion&quot;: &quot;0.0&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
-    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Application.HistoricalDataFetcher.executor": "Run",
+    "Application.ZerodhaAutoLogin.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "git-widget-placeholder": "main",
+    "junie.onboarding.icon.badge.shown": "true",
+    "kotlin-language-version-configured": "true",
+    "onboarding.tips.debug.path": "/Users/sagnikdas/IdeaProjects/algowala/src/Main.java",
+    "project.structure.last.edited": "Modules",
+    "project.structure.proportion": "0.0",
+    "project.structure.side.proportion": "0.0",
+    "settings.editor.selected.configurable": "preferences.pluginManager",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RunManager" selected="Application.ZerodhaAutoLogin">
     <configuration name="HistoricalDataFetcher" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="historical.HistoricalDataFetcher" />
@@ -63,7 +76,7 @@
       </method>
     </configuration>
     <configuration name="ZerodhaAutoLogin" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="ZerodhaAutoLogin" />
+      <option name="MAIN_CLASS_NAME" value="login.ZerodhaAutoLogin" />
       <module name="zerodha-login" />
       <method v="2">
         <option name="Make" enabled="true" />

@@ -1,290 +1,483 @@
 package trading.bot;
 
-import com.zerodhatech.kiteconnect.KiteConnect;
-import com.zerodhatech.kiteconnect.kitehttp.exceptions.KiteException;
-import com.zerodhatech.models.*;
-
-import java.io.IOException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
+import java.util.logging.Logger;
+import historical.HistoricalDataFetcher;
+import login.ZerodhaAutoLogin;
 
 public class CPRTradingBot {
+    private static final Logger logger = Logger.getLogger(CPRTradingBot.class.getName());
     
-    private KiteConnect kiteConnect;
-    private CPRCalculator cprCalculator;
-    private PositionManager positionManager;
-    private InstrumentManager instrumentManager;
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    // Core components
+    //private final ZerodhaAutoLogin zerodhaLogin;
+    private final HistoricalDataFetcher historicalFetcher;
+    private final CPRCalculator cprCalculator;
+    private final InstrumentManager instrumentManager;
+    private final PositionManager positionManager;
     
     // Configuration
-    private static final String NIFTY_INSTRUMENT = "NSE:NIFTY 50";
-    private static final double STOP_LOSS_PERCENTAGE = 0.25; // 25%
-    private static final LocalTime LOGIN_TIME = LocalTime.of(10, 0); // 10:00 AM
-    private static final LocalTime EXIT_TIME = LocalTime.of(15, 0);  // 3:00 PM
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+    private final Map<String, CPRLevels> dailyCPRCache = new ConcurrentHashMap<>();
+    private volatile boolean isRunning = false;
+    private volatile boolean isLoggedIn = false;
     
-    // Trading state
-    private boolean isLoggedIn = false;
-    private boolean positionsOpened = false;
-    private CPRLevels cprLevels;
+    // Trading parameters
+    private static final double INITIAL_CAPITAL = 500000; // 5 lakhs
+    private static final double MAX_DAILY_LOSS_PERCENT = 2.0; // 2% max daily loss
+    private static final double RISK_PER_TRADE_PERCENT = 1.0; // 1% risk per trade
     
-    public CPRTradingBot() {
+    public CPRTradingBot(ZerodhaAutoLogin zerodhaLogin, HistoricalDataFetcher historicalFetcher) {
+        this.zerodhaLogin = zerodhaLogin;
+        this.historicalFetcher = historicalFetcher;
         this.cprCalculator = new CPRCalculator();
-        this.positionManager = new PositionManager();
-    }
-    
-    public void start() {
-        System.out.println("CPR Trading Bot started at: " + LocalDateTime.now());
+        this.instrumentManager = new InstrumentManager();
         
-        // Schedule login at 10:00 AM
-        scheduleLogin();
-        
-        // Schedule position monitoring every 5 minutes after login
-        schedulePositionMonitoring();
-        
-        // Schedule exit at 3:00 PM
-        scheduleExit();
-        
-        // Keep the bot running
-        Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown));
-    }
-    
-    private void scheduleLogin() {
-        LocalTime now = LocalTime.now();
-        long delayMinutes = 0;
-        
-        if (now.isBefore(LOGIN_TIME)) {
-            delayMinutes = java.time.Duration.between(now, LOGIN_TIME).toMinutes();
-        }
-        
-        scheduler.schedule(() -> {
-            try {
-                performLogin();
-                calculateCPRLevels();
-            } catch (Exception e) {
-                System.err.println("Login failed: " + e.getMessage());
-                e.printStackTrace();
-            } catch (KiteException e) {
-                throw new RuntimeException(e);
-            }
-        }, delayMinutes, TimeUnit.MINUTES);
-    }
-    
-    private void schedulePositionMonitoring() {
-        // Start monitoring 5 minutes after login time
-        LocalTime monitoringStart = LOGIN_TIME.plusMinutes(5);
-        LocalTime now = LocalTime.now();
-        long delayMinutes = 0;
-        
-        if (now.isBefore(monitoringStart)) {
-            delayMinutes = java.time.Duration.between(now, monitoringStart).toMinutes();
-        }
-        
-        scheduler.scheduleAtFixedRate(() -> {
-            if (isLoggedIn && LocalTime.now().isBefore(EXIT_TIME)) {
-                try {
-                    monitorAndTrade();
-                } catch (Exception e) {
-                    System.err.println("Error in monitoring: " + e.getMessage());
-                    e.printStackTrace();
-                } catch (KiteException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        }, delayMinutes, 5, TimeUnit.MINUTES); // Every 5 minutes
-    }
-    
-    private void scheduleExit() {
-        LocalTime now = LocalTime.now();
-        long delayMinutes = 0;
-        
-        if (now.isBefore(EXIT_TIME)) {
-            delayMinutes = java.time.Duration.between(now, EXIT_TIME).toMinutes();
-        }
-        
-        scheduler.schedule(() -> {
-            try {
-                exitAllPositions();
-            } catch (Exception e) {
-                System.err.println("Error during exit: " + e.getMessage());
-                e.printStackTrace();
-            } catch (KiteException e) {
-                throw new RuntimeException(e);
-            }
-        }, delayMinutes, TimeUnit.MINUTES);
-    }
-    
-    private void performLogin() throws Exception {
-        System.out.println("Performing login at: " + LocalDateTime.now());
-        
-        Scanner scanner = new Scanner(System.in);
-        
-        System.out.print("Enter your Kite API Key: ");
-        String apiKey = scanner.nextLine().trim();
-        
-        System.out.print("Enter your Kite API Secret: ");
-        String apiSecret = scanner.nextLine().trim();
-        
-        System.out.print("Enter your Kite User ID: ");
-        String userId = scanner.nextLine().trim();
-        
-        System.out.print("Enter your Kite Password: ");
-        String userPassword = scanner.nextLine().trim();
-        
-        // Use reflection to call ZerodhaAutoLogin from default package
-        try {
-            Class<?> loginClass = Class.forName("ZerodhaAutoLogin");
-            java.lang.reflect.Method loginMethod = loginClass.getMethod("zerodhaAutoLoginManualOtp", 
-                String.class, String.class, String.class, String.class, boolean.class);
-            
-            this.kiteConnect = (KiteConnect) loginMethod.invoke(null, 
-                apiKey, apiSecret, userId, userPassword, true);
-            
-            // Initialize instrument manager after successful login
-            this.instrumentManager = new InstrumentManager(kiteConnect);
-            this.instrumentManager.loadInstruments();
-            this.instrumentManager.printInstrumentSummary();
-            
-            this.isLoggedIn = true;
-            System.out.println("Login successful!");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to login using ZerodhaAutoLogin", e);
-        } catch (KiteException e) {
-            throw new RuntimeException(e);
-        }
-    }
-    
-    private void calculateCPRLevels() throws KiteException, IOException {
-        System.out.println("Calculating CPR levels...");
-        
-        // Get previous day's OHLC data for Nifty
-        Date yesterday = new Date(System.currentTimeMillis() - 24 * 60 * 60 * 1000);
-        Date today = new Date();
-        
-        // Get historical data for previous day
-        HistoricalData historicalData = kiteConnect.getHistoricalData(
-            yesterday, today, "256265", "day", false, false
+        // Initialize risk parameters
+        PositionManager.RiskParameters riskParams = new PositionManager.RiskParameters(
+            INITIAL_CAPITAL * (MAX_DAILY_LOSS_PERCENT / 100), // Max daily loss
+            10.0, // Max position size as % of capital
+            RISK_PER_TRADE_PERCENT, // Risk per trade
+            5, // Max positions
+            80.0 // Max portfolio exposure %
         );
         
-        if (historicalData.dataArrayList != null && !historicalData.dataArrayList.isEmpty()) {
-            HistoricalData lastDay = historicalData.dataArrayList.get(
-                historicalData.dataArrayList.size() - 1
-            );
+        this.positionManager = new PositionManager(INITIAL_CAPITAL, riskParams);
+        
+        // Initialize common instruments
+        instrumentManager.initializeCommonInstruments();
+    }
+    
+    /**
+     * Start the trading bot
+     */
+    public void startTrading() {
+        logger.info("Starting CPR Trading Bot...");
+        
+        try {
+            // Step 1: Login and authenticate
+            if (!performDailyLogin()) {
+                logger.severe("Failed to login. Cannot start trading.");
+                return;
+            }
             
-            this.cprLevels = cprCalculator.calculateCPR(
-                lastDay.high, lastDay.low, lastDay.close
-            );
+            // Step 2: Subscribe to instruments
+            subscribeToInstruments();
             
-            System.out.println("CPR Levels calculated:");
-            System.out.println("PDH: " + cprLevels.getPDH());
-            System.out.println("PDL: " + cprLevels.getPDL());
-            System.out.println("R1: " + cprLevels.getR1());
-            System.out.println("S1: " + cprLevels.getS1());
-            System.out.println("Pivot: " + cprLevels.getPivot());
+            // Step 3: Calculate initial CPR levels
+            calculateDailyCPRLevels();
+            
+            // Step 4: Start trading loops
+            startTradingLoops();
+            
+            isRunning = true;
+            logger.info("CPR Trading Bot started successfully!");
+            
+        } catch (Exception e) {
+            logger.severe("Error starting trading bot: " + e.getMessage());
+            stopTrading();
         }
     }
     
-    private void monitorAndTrade() throws KiteException, IOException {
-        if (cprLevels == null) {
-            System.out.println("CPR levels not calculated yet");
+    /**
+     * Perform daily login and token generation
+     */
+    private boolean performDailyLogin() {
+        try {
+            logger.info("Performing Zerodha login...");
+            boolean loginSuccess = zerodhaLogin.login();
+            
+            if (loginSuccess) {
+                String accessToken = zerodhaLogin.getAccessToken();
+                if (accessToken != null && !accessToken.isEmpty()) {
+                    isLoggedIn = true;
+                    logger.info("Login successful. Access token obtained.");
+                    
+                    // Reset daily counters
+                    positionManager.resetDailyCounters();
+                    return true;
+                }
+            }
+            
+            logger.warning("Login failed or access token not available.");
+            return false;
+            
+        } catch (Exception e) {
+            logger.severe("Login error: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Subscribe to required instruments for live data
+     */
+    private void subscribeToInstruments() {
+        List<String> watchlist = instrumentManager.getCPRWatchlist();
+        
+        for (String instrumentToken : watchlist) {
+            instrumentManager.subscribeToInstrument(instrumentToken);
+        }
+        
+        logger.info("Subscribed to " + watchlist.size() + " instruments for live data.");
+    }
+    
+    /**
+     * Calculate CPR levels for all watchlist instruments
+     */
+    private void calculateDailyCPRLevels() {
+        logger.info("Calculating daily CPR levels...");
+        
+        LocalDate today = LocalDate.now();
+        LocalDate previousDay = today.minusDays(1);
+        
+        List<String> watchlist = instrumentManager.getCPRWatchlist();
+        
+        for (String instrumentToken : watchlist) {
+            try {
+                // Get historical data for previous day
+                Map<String, Object> ohlcData = historicalFetcher.getOHLCData(instrumentToken, previousDay);
+                
+                if (ohlcData != null) {
+                    double high = (Double) ohlcData.get("high");
+                    double low = (Double) ohlcData.get("low");
+                    double close = (Double) ohlcData.get("close");
+                    
+                    CPRLevels cprLevels = cprCalculator.calculateDailyCPR(today, high, low, close);
+                    dailyCPRCache.put(instrumentToken, cprLevels);
+                    
+                    logger.info("CPR calculated for " + instrumentToken + ": " + cprLevels);
+                }
+                
+            } catch (Exception e) {
+                logger.warning("Failed to calculate CPR for " + instrumentToken + ": " + e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Start main trading loops
+     */
+    private void startTradingLoops() {
+        // Main trading loop - runs every 10 seconds
+        scheduler.scheduleWithFixedDelay(this::mainTradingLoop, 0, 10, TimeUnit.SECONDS);
+        
+        // Position monitoring loop - runs every 5 seconds
+        scheduler.scheduleWithFixedDelay(this::monitorPositions, 5, 5, TimeUnit.SECONDS);
+        
+        // Market status check - runs every minute
+        scheduler.scheduleWithFixedDelay(this::checkMarketStatus, 0, 60, TimeUnit.SECONDS);
+        
+        // Daily reset - runs at market open
+        scheduler.scheduleWithFixedDelay(this::performDailyReset, 0, 24, TimeUnit.HOURS);
+    }
+    
+    /**
+     * Main trading logic loop
+     */
+    private void mainTradingLoop() {
+        if (!isRunning || !isLoggedIn || !instrumentManager.isMarketOpen()) {
             return;
         }
         
-        // Get current Nifty price from 5-minute candle
-        double currentPrice = getCurrentNiftyPrice();
-        System.out.println("Current Nifty Price: " + currentPrice + " at " + LocalDateTime.now());
+        try {
+            Map<String, Double> currentPrices = instrumentManager.getCurrentPrices();
+            
+            for (Map.Entry<String, Double> entry : currentPrices.entrySet()) {
+                String instrumentToken = entry.getKey();
+                double currentPrice = entry.getValue();
+                
+                // Generate trading signals
+                List<TradingSignal> signals = generateTradingSignals(instrumentToken, currentPrice);
+                
+                // Execute valid signals
+                for (TradingSignal signal : signals) {
+                    if (signal.shouldExecute()) {
+                        executeSignal(signal);
+                    }
+                }
+            }
+            
+        } catch (Exception e) {
+            logger.warning("Error in main trading loop: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Generate trading signals based on CPR logic
+     */
+    private List<TradingSignal> generateTradingSignals(String instrumentToken, double currentPrice) {
+        List<TradingSignal> signals = new ArrayList<>();
         
-        // Check trading conditions
-        if (!positionsOpened) {
-            checkAndExecuteTrades(currentPrice);
+        CPRLevels cprLevels = dailyCPRCache.get(instrumentToken);
+        if (cprLevels == null) return signals;
+        
+        // Check if position already exists
+        if (positionManager.getOpenPositions().containsKey(instrumentToken)) {
+            return signals; // Already have position
+        }
+        
+        // CPR Trading Strategy Logic
+        
+        // 1. Price above CPR - Bullish signal
+        if (cprLevels.isPriceAboveCPR(currentPrice)) {
+            double stopLoss = cprLevels.getBottomCentral();
+            double target = cprLevels.getR1();
+            
+            // Ensure good risk-reward ratio (minimum 1:1.5)
+            double riskReward = Math.abs(target - currentPrice) / Math.abs(currentPrice - stopLoss);
+            
+            if (riskReward >= 1.5) {
+                int quantity = positionManager.calculatePositionSize(currentPrice, stopLoss, instrumentToken);
+                quantity = instrumentManager.calculateLotAdjustedQuantity(instrumentToken, quantity);
+                
+                TradingSignal signal = new TradingSignal.Builder(instrumentToken, TradingSignal.SignalType.BUY)
+                    .triggerPrice(currentPrice)
+                    .targetPrice(target)
+                    .stopLossPrice(stopLoss)
+                    .quantity(quantity)
+                    .strength(getSignalStrength(cprLevels, currentPrice))
+                    .reason(TradingSignal.TriggerReason.PRICE_ABOVE_CPR)
+                    .confidence(calculateConfidence(cprLevels, currentPrice, true))
+                    .build();
+                
+                signals.add(signal);
+            }
+        }
+        
+        // 2. Price below CPR - Bearish signal
+        else if (cprLevels.isPriceBelowCPR(currentPrice)) {
+            double stopLoss = cprLevels.getTopCentral();
+            double target = cprLevels.getS1();
+            
+            double riskReward = Math.abs(currentPrice - target) / Math.abs(stopLoss - currentPrice);
+            
+            if (riskReward >= 1.5) {
+                int quantity = positionManager.calculatePositionSize(currentPrice, stopLoss, instrumentToken);
+                quantity = instrumentManager.calculateLotAdjustedQuantity(instrumentToken, quantity);
+                
+                TradingSignal signal = new TradingSignal.Builder(instrumentToken, TradingSignal.SignalType.SELL)
+                    .triggerPrice(currentPrice)
+                    .targetPrice(target)
+                    .stopLossPrice(stopLoss)
+                    .quantity(quantity)
+                    .strength(getSignalStrength(cprLevels, currentPrice))
+                    .reason(TradingSignal.TriggerReason.PRICE_BELOW_CPR)
+                    .confidence(calculateConfidence(cprLevels, currentPrice, false))
+                    .build();
+                
+                signals.add(signal);
+            }
+        }
+        
+        return signals;
+    }
+    
+    /**
+     * Calculate signal strength based on CPR characteristics
+     */
+    private TradingSignal.SignalStrength getSignalStrength(CPRLevels cprLevels, double currentPrice) {
+        if (cprLevels.getCprType() == CPRLevels.CPRType.NARROW_CPR) {
+            return TradingSignal.SignalStrength.STRONG; // Narrow CPR indicates strong breakout potential
+        } else if (cprLevels.getCprType() == CPRLevels.CPRType.WIDE_CPR) {
+            return TradingSignal.SignalStrength.WEAK; // Wide CPR indicates sideways movement
         } else {
-            // Monitor existing positions for stop loss
-            positionManager.monitorStopLoss(kiteConnect, STOP_LOSS_PERCENTAGE);
+            return TradingSignal.SignalStrength.MODERATE;
         }
     }
     
-    private double getCurrentNiftyPrice() throws KiteException, IOException {
-        // Get current market data for Nifty
-        String[] instruments = {"256265"}; // Nifty 50 instrument token
-        Map<String, Quote> quotes = kiteConnect.getQuote(instruments);
+    /**
+     * Calculate signal confidence
+     */
+    private double calculateConfidence(CPRLevels cprLevels, double currentPrice, boolean isBullish) {
+        double confidence = 0.5; // Base confidence
         
-        if (quotes.containsKey("256265")) {
-            return quotes.get("256265").lastPrice;
+        // Higher confidence for narrow CPR
+        if (cprLevels.getCprType() == CPRLevels.CPRType.NARROW_CPR) {
+            confidence += 0.2;
         }
         
-        throw new RuntimeException("Unable to fetch Nifty price");
-    }
-    
-    private void checkAndExecuteTrades(double currentPrice) throws KiteException, IOException {
-        boolean shouldTrade = false;
-        String tradeType = "";
-        double strikeLevel = 0;
-        
-        // Check if price is within PDH and R1 range
-        if (currentPrice >= cprLevels.getPDH() && currentPrice <= cprLevels.getR1()) {
-            shouldTrade = true;
-            tradeType = "SHORT_CE";
-            strikeLevel = cprLevels.getPDH();
-            System.out.println("Price within PDH-R1 range. Shorting CE at PDH level: " + strikeLevel);
-        }
-        // Check if price is within PDL and S1 range
-        else if (currentPrice >= cprLevels.getS1() && currentPrice <= cprLevels.getPDL()) {
-            shouldTrade = true;
-            tradeType = "SHORT_PE";
-            strikeLevel = cprLevels.getPDL();
-            System.out.println("Price within S1-PDL range. Shorting PE at PDL level: " + strikeLevel);
+        // Higher confidence when price is significantly away from CPR
+        double distanceFromCPR;
+        if (isBullish) {
+            distanceFromCPR = (currentPrice - cprLevels.getTopCentral()) / cprLevels.getTopCentral();
+        } else {
+            distanceFromCPR = (cprLevels.getBottomCentral() - currentPrice) / cprLevels.getBottomCentral();
         }
         
-        if (shouldTrade) {
-            executeOptionTrades(tradeType, strikeLevel);
-            positionsOpened = true;
+        if (distanceFromCPR > 0.005) { // More than 0.5% away
+            confidence += 0.15;
+        }
+        
+        return Math.min(1.0, confidence);
+    }
+    
+    /**
+     * Execute trading signal
+     */
+    private void executeSignal(TradingSignal signal) {
+        try {
+            if (positionManager.openPosition(signal)) {
+                // Place actual order through Zerodha API
+                boolean orderSuccess = placeOrder(signal);
+                
+                if (orderSuccess) {
+                    logger.info("Order executed successfully: " + signal);
+                } else {
+                    logger.warning("Failed to place order: " + signal);
+                }
+            } else {
+                logger.info("Position rejected by risk management: " + signal.getInstrumentToken());
+            }
+            
+        } catch (Exception e) {
+            logger.severe("Error executing signal: " + e.getMessage());
         }
     }
     
-    private void executeOptionTrades(String tradeType, double strikeLevel) throws KiteException, IOException {
-        // Find the closest strike to the target level
-        int closestStrike = findClosestStrike(strikeLevel);
+    /**
+     * Place order through Zerodha API
+     */
+    private boolean placeOrder(TradingSignal signal) {
+        try {
+            // This would integrate with your login.ZerodhaAutoLogin class
+            Map<String, Object> orderParams = new HashMap<>();
+            orderParams.put("tradingsymbol", instrumentManager.getInstrumentByToken(signal.getInstrumentToken()).getTradingSymbol());
+            orderParams.put("exchange", "NSE");
+            orderParams.put("transaction_type", signal.getType() == TradingSignal.SignalType.BUY ? "BUY" : "SELL");
+            orderParams.put("quantity", signal.getQuantity());
+            orderParams.put("price", signal.getTriggerPrice());
+            orderParams.put("product", "MIS"); // Intraday
+            orderParams.put("order_type", "LIMIT");
+            
+            // Call zerodhaLogin.placeOrder(orderParams) - implement this method
+            return zerodhaLogin.placeOrder(orderParams);
+            
+        } catch (Exception e) {
+            logger.severe("Order placement error: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Monitor open positions for exits
+     */
+    private void monitorPositions() {
+        if (!isRunning || !isLoggedIn) return;
         
-        // Get option instruments for the closest strike
-        String ceInstrument = getOptionInstrument(closestStrike, "CE");
-        String peInstrument = getOptionInstrument(closestStrike, "PE");
-        
-        if (tradeType.equals("SHORT_CE")) {
-            // Short CE and PE
-            positionManager.shortOption(kiteConnect, ceInstrument, "CE");
-            positionManager.shortOption(kiteConnect, peInstrument, "PE");
-        } else if (tradeType.equals("SHORT_PE")) {
-            // Short CE and PE
-            positionManager.shortOption(kiteConnect, ceInstrument, "CE");
-            positionManager.shortOption(kiteConnect, peInstrument, "PE");
+        try {
+            Map<String, Double> currentPrices = instrumentManager.getCurrentPrices();
+            List<PositionManager.Position> positionsToClose = positionManager.updatePositions(currentPrices);
+            
+            for (PositionManager.Position position : positionsToClose) {
+                String reason = position.shouldCloseOnTarget() ? "Target Hit" : "Stop Loss Hit";
+                positionManager.closePosition(position.getInstrumentToken(), position.getCurrentPrice(), reason);
+                
+                // Place exit order
+                closePosition(position, reason);
+            }
+            
+        } catch (Exception e) {
+            logger.warning("Error monitoring positions: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Close position through API
+     */
+    private void closePosition(PositionManager.Position position, String reason) {
+        try {
+            Map<String, Object> orderParams = new HashMap<>();
+            orderParams.put("tradingsymbol", instrumentManager.getInstrumentByToken(position.getInstrumentToken()).getTradingSymbol());
+            orderParams.put("exchange", "NSE");
+            orderParams.put("transaction_type", position.getTransactionType().equals("BUY") ? "SELL" : "BUY");
+            orderParams.put("quantity", position.getQuantity());
+            orderParams.put("product", "MIS");
+            orderParams.put("order_type", "MARKET");
+            
+            boolean orderSuccess = zerodhaLogin.placeOrder(orderParams);
+            logger.info(String.format("Position closed: %s, Reason: %s, Success: %s", 
+                       position.getInstrumentToken(), reason, orderSuccess));
+            
+        } catch (Exception e) {
+            logger.severe("Error closing position: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Check market status and handle market close
+     */
+    private void checkMarketStatus() {
+        if (!instrumentManager.isMarketOpen() && isRunning) {
+            logger.info("Market closed. Closing all positions...");
+            closeAllPositions("Market Close");
         }
         
-        System.out.println("Executed trades for strike: " + closestStrike);
+        // Print daily statistics
+        if (isRunning) {
+            printDailyStats();
+        }
     }
     
-    private int findClosestStrike(double price) {
-        // Round to nearest 50 (Nifty strikes are in multiples of 50)
-        return (int) (Math.round(price / 50.0) * 50);
+    /**
+     * Close all open positions
+     */
+    private void closeAllPositions(String reason) {
+        Map<String, PositionManager.Position> openPositions = positionManager.getOpenPositions();
+        
+        for (PositionManager.Position position : openPositions.values()) {
+            closePosition(position, reason);
+            positionManager.closePosition(position.getInstrumentToken(), position.getCurrentPrice(), reason);
+        }
     }
     
-    private String getOptionInstrument(int strike, String optionType) {
-        // This would need to be implemented based on Zerodha's instrument tokens
-        // For now, returning a placeholder - you'll need to map strikes to instrument tokens
-        return "NIFTY_" + strike + "_" + optionType;
+    /**
+     * Print daily trading statistics
+     */
+    private void printDailyStats() {
+        Map<String, Object> stats = positionManager.getDailyStats();
+        Map<String, Object> marketStatus = instrumentManager.getMarketStatus();
+        
+        logger.info("=== Daily Trading Stats ===");
+        logger.info("Total Capital: " + stats.get("totalCapital"));
+        logger.info("Daily PnL: " + stats.get("dailyPnL"));
+        logger.info("Open Positions: " + stats.get("openPositions"));
+        logger.info("Unrealized PnL: " + stats.get("totalUnrealizedPnL"));
+        logger.info("Portfolio Exposure: " + stats.get("portfolioExposure"));
+        logger.info("Market Open: " + marketStatus.get("isMarketOpen"));
+        logger.info("==========================");
     }
     
-    private void exitAllPositions() throws KiteException, IOException {
-        System.out.println("Exiting all positions at 3:00 PM");
-        positionManager.exitAllPositions(kiteConnect);
-        positionsOpened = false;
+    /**
+     * Perform daily reset at market open
+     */
+    private void performDailyReset() {
+        if (instrumentManager.isMarketOpen()) {
+            logger.info("Performing daily reset...");
+            
+            // Recalculate CPR levels
+            calculateDailyCPRLevels();
+            
+            // Reset position manager counters
+            positionManager.resetDailyCounters();
+            
+            logger.info("Daily reset completed.");
+        }
     }
     
-    private void shutdown() {
-        System.out.println("Shutting down CPR Trading Bot...");
+    /**
+     * Stop trading bot
+     */
+    public void stopTrading() {
+        logger.info("Stopping CPR Trading Bot...");
+        
+        isRunning = false;
+        
+        // Close all open positions
+        closeAllPositions("Bot Shutdown");
+        
+        // Shutdown scheduler
         scheduler.shutdown();
         try {
             if (!scheduler.awaitTermination(60, TimeUnit.SECONDS)) {
@@ -292,18 +485,50 @@ public class CPRTradingBot {
             }
         } catch (InterruptedException e) {
             scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        
+        logger.info("CPR Trading Bot stopped.");
+    }
+    
+    // Main method to run the bot
+    public static void main(String[] args) {
+        try {
+            // Initialize components
+            ZerodhaAutoLogin zerodhaLogin = new ZerodhaAutoLogin();
+            HistoricalDataFetcher historicalFetcher = new HistoricalDataFetcher();
+            
+            // Create and start bot
+            CPRTradingBot bot = new CPRTradingBot(zerodhaLogin, historicalFetcher);
+            
+            // Add shutdown hook
+            Runtime.getRuntime().addShutdownHook(new Thread(bot::stopTrading));
+            
+            // Start trading
+            bot.startTrading();
+            
+            // Keep main thread alive
+            while (bot.isRunning) {
+                Thread.sleep(10000); // Check every 10 seconds
+            }
+            
+        } catch (Exception e) {
+            System.err.println("Fatal error: " + e.getMessage());
+            e.printStackTrace();
         }
     }
     
-    public static void main(String[] args) {
-        CPRTradingBot bot = new CPRTradingBot();
-        bot.start();
-        
-        // Keep main thread alive
-        try {
-            Thread.currentThread().join();
-        } catch (InterruptedException e) {
-            System.out.println("Bot interrupted");
-        }
+    // Getter for status check
+    public boolean isRunning() {
+        return isRunning;
+    }
+    
+    public Map<String, Object> getSystemStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("isRunning", isRunning);
+        status.put("isLoggedIn", isLoggedIn);
+        status.put("dailyStats", positionManager.getDailyStats());
+        status.put("marketStatus", instrumentManager.getMarketStatus());
+        return status;
     }
 }

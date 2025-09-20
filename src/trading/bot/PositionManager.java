@@ -1,260 +1,181 @@
 package trading.bot;
 
-import com.zerodhatech.kiteconnect.KiteConnect;
-import com.zerodhatech.kiteconnect.kitehttp.exceptions.KiteException;
-import com.zerodhatech.models.*;
-
-import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicDouble;
 
 public class PositionManager {
     
-    private final Map<String, Position> activePositions = new ConcurrentHashMap<>();
-    private final Map<String, Double> entryPrices = new ConcurrentHashMap<>();
-    private final Map<String, String> orderIds = new ConcurrentHashMap<>();
-    
-    // Default quantity for options trading
-    private static final int DEFAULT_QUANTITY = 50; // Nifty lot size
-    
-    /**
-     * Shorts an option (CE or PE)
-     */
-    public void shortOption(KiteConnect kiteConnect, String instrumentToken, String optionType) 
-            throws KiteException, IOException {
+    public static class Position {
+        private final String instrumentToken;
+        private final String transactionType;
+        private final int quantity;
+        private final double entryPrice;
+        private final double stopLoss;
+        private final double target;
+        private final LocalDateTime entryTime;
+        private double currentPrice;
+        private boolean isOpen = true;
+        private double realizedPnL = 0;
+        private LocalDateTime exitTime;
         
-        try {
-            // Get current market price for the option
-            String[] instruments = {instrumentToken};
-            Map<String, Quote> quotes = kiteConnect.getQuote(instruments);
-            
-            if (!quotes.containsKey(instrumentToken)) {
-                throw new RuntimeException("Unable to get quote for instrument: " + instrumentToken);
-            }
-            
-            Quote quote = quotes.get(instrumentToken);
-            double currentPrice = quote.lastPrice;
-            
-            // Place sell order (short)
-            OrderParams orderParams = new OrderParams();
-            orderParams.quantity = DEFAULT_QUANTITY;
-            orderParams.price = 0.0; // Market order
-            orderParams.exchange = Constants.EXCHANGE_NFO;
-            orderParams.tradingsymbol = getTradingSymbol(instrumentToken, optionType);
-            orderParams.transactionType = Constants.TRANSACTION_TYPE_SELL;
-            orderParams.orderType = Constants.ORDER_TYPE_MARKET;
-            orderParams.product = Constants.PRODUCT_MIS; // Intraday
-            orderParams.validity = Constants.VALIDITY_DAY;
-            
-            Order order = kiteConnect.placeOrder(orderParams, Constants.VARIETY_REGULAR);
-            
-            // Store position details
-            String positionKey = instrumentToken + "_" + optionType;
-            Position position = new Position();
-            position.tradingSymbol = orderParams.tradingsymbol;
-            position.quantity = -DEFAULT_QUANTITY; // Negative for short position
-            position.product = Constants.PRODUCT_MIS;
-            
-            activePositions.put(positionKey, position);
-            entryPrices.put(positionKey, currentPrice);
-            orderIds.put(positionKey, order.orderId);
-            
-            System.out.println(String.format("Shorted %s %s at price %.2f, Order ID: %s", 
-                             optionType, orderParams.tradingsymbol, currentPrice, order.orderId));
-            
-        } catch (Exception e) {
-            System.err.println("Error shorting option: " + e.getMessage());
-            throw e;
+        public Position(String instrumentToken, String transactionType, int quantity, 
+                       double entryPrice, double stopLoss, double target) {
+            this.instrumentToken = instrumentToken;
+            this.transactionType = transactionType;
+            this.quantity = quantity;
+            this.entryPrice = entryPrice;
+            this.stopLoss = stopLoss;
+            this.target = target;
+            this.entryTime = LocalDateTime.now();
+            this.currentPrice = entryPrice;
         }
+        
+        public void updateCurrentPrice(double price) { this.currentPrice = price; }
+        
+        public double getUnrealizedPnL() {
+            if (!isOpen) return realizedPnL;
+            return "BUY".equals(transactionType) ? 
+                (currentPrice - entryPrice) * quantity : (entryPrice - currentPrice) * quantity;
+        }
+        
+        public void closePosition(double exitPrice) {
+            this.currentPrice = exitPrice;
+            this.realizedPnL = getUnrealizedPnL();
+            this.isOpen = false;
+            this.exitTime = LocalDateTime.now();
+        }
+        
+        public boolean shouldCloseOnStopLoss() {
+            return "BUY".equals(transactionType) ? currentPrice <= stopLoss : currentPrice >= stopLoss;
+        }
+        
+        public boolean shouldCloseOnTarget() {
+            return "BUY".equals(transactionType) ? currentPrice >= target : currentPrice <= target;
+        }
+        
+        // Getters
+        public String getInstrumentToken() { return instrumentToken; }
+        public String getTransactionType() { return transactionType; }
+        public int getQuantity() { return quantity; }
+        public double getEntryPrice() { return entryPrice; }
+        public double getStopLoss() { return stopLoss; }
+        public double getTarget() { return target; }
+        public LocalDateTime getEntryTime() { return entryTime; }
+        public double getCurrentPrice() { return currentPrice; }
+        public boolean isOpen() { return isOpen; }
+        public double getRealizedPnL() { return realizedPnL; }
+        public LocalDateTime getExitTime() { return exitTime; }
     }
     
-    /**
-     * Monitors positions for stop loss
-     */
-    public void monitorStopLoss(KiteConnect kiteConnect, double stopLossPercentage) 
-            throws KiteException, IOException {
+    public static class RiskParameters {
+        private final double maxDailyLoss;
+        private final double maxPositionSize;
+        private final double riskPerTrade;
+        private final int maxPositions;
+        private final double maxPortfolioExposure;
         
-        if (activePositions.isEmpty()) {
-            return;
+        public RiskParameters(double maxDailyLoss, double maxPositionSize, 
+                            double riskPerTrade, int maxPositions, double maxPortfolioExposure) {
+            this.maxDailyLoss = maxDailyLoss;
+            this.maxPositionSize = maxPositionSize;
+            this.riskPerTrade = riskPerTrade;
+            this.maxPositions = maxPositions;
+            this.maxPortfolioExposure = maxPortfolioExposure;
         }
         
-        System.out.println("Monitoring " + activePositions.size() + " positions for stop loss...");
+        public double getMaxDailyLoss() { return maxDailyLoss; }
+        public double getMaxPositionSize() { return maxPositionSize; }
+        public double getRiskPerTrade() { return riskPerTrade; }
+        public int getMaxPositions() { return maxPositions; }
+        public double getMaxPortfolioExposure() { return maxPortfolioExposure; }
+    }
+    
+    private final Map<String, Position> openPositions = new ConcurrentHashMap<>();
+    private final List<Position> closedPositions = Collections.synchronizedList(new ArrayList<>());
+    private final AtomicDouble totalCapital;
+    private final RiskParameters riskParams;
+    private final AtomicDouble dailyPnL = new AtomicDouble(0);
+    
+    public PositionManager(double initialCapital, RiskParameters riskParams) {
+        this.totalCapital = new AtomicDouble(initialCapital);
+        this.riskParams = riskParams;
+    }
+    
+    public int calculatePositionSize(double entryPrice, double stopLoss, String instrumentToken) {
+        double riskAmount = totalCapital.get() * (riskParams.getRiskPerTrade() / 100.0);
+        double riskPerShare = Math.abs(entryPrice - stopLoss);
         
-        for (Map.Entry<String, Position> entry : activePositions.entrySet()) {
-            String positionKey = entry.getKey();
-            Position position = entry.getValue();
-            
-            try {
-                // Get current market price
-                String instrumentToken = positionKey.split("_")[0];
-                String[] instruments = {instrumentToken};
-                Map<String, Quote> quotes = kiteConnect.getQuote(instruments);
-                
-                if (quotes.containsKey(instrumentToken)) {
-                    Quote quote = quotes.get(instrumentToken);
-                    double currentPrice = quote.lastPrice;
-                    double entryPrice = entryPrices.get(positionKey);
-                    
-                    // Calculate P&L percentage for short position
-                    double pnlPercentage = (entryPrice - currentPrice) / entryPrice;
-                    
-                    System.out.println(String.format("Position %s: Entry=%.2f, Current=%.2f, P&L=%.2f%%", 
-                                     position.tradingSymbol, entryPrice, currentPrice, pnlPercentage * 100));
-                    
-                    // Check if stop loss is hit (loss > stopLossPercentage)
-                    if (pnlPercentage < -stopLossPercentage) {
-                        System.out.println("Stop loss hit for " + position.tradingSymbol + 
-                                         ". Closing position...");
-                        closePosition(kiteConnect, positionKey);
-                    }
+        if (riskPerShare <= 0) return 0;
+        
+        int calculatedSize = (int) (riskAmount / riskPerShare);
+        double maxPositionValue = totalCapital.get() * (riskParams.getMaxPositionSize() / 100.0);
+        int maxAllowedSize = (int) (maxPositionValue / entryPrice);
+        
+        return Math.min(calculatedSize, maxAllowedSize);
+    }
+    
+    public boolean canOpenPosition(TradingSignal signal) {
+        return openPositions.size() < riskParams.getMaxPositions() &&
+               dailyPnL.get() > -riskParams.getMaxDailyLoss() &&
+               !openPositions.containsKey(signal.getInstrumentToken());
+    }
+    
+    public boolean openPosition(TradingSignal signal) {
+        if (!canOpenPosition(signal)) return false;
+        
+        String transactionType = (signal.getType() == TradingSignal.SignalType.BUY) ? "BUY" : "SELL";
+        Position position = new Position(signal.getInstrumentToken(), transactionType,
+                signal.getQuantity(), signal.getTriggerPrice(), signal.getStopLossPrice(), signal.getTargetPrice());
+        
+        openPositions.put(signal.getInstrumentToken(), position);
+        return true;
+    }
+    
+    public List<Position> updatePositions(Map<String, Double> currentPrices) {
+        List<Position> positionsToClose = new ArrayList<>();
+        
+        for (Position position : openPositions.values()) {
+            Double currentPrice = currentPrices.get(position.getInstrumentToken());
+            if (currentPrice != null) {
+                position.updateCurrentPrice(currentPrice);
+                if (position.shouldCloseOnStopLoss() || position.shouldCloseOnTarget()) {
+                    positionsToClose.add(position);
                 }
-            } catch (Exception e) {
-                System.err.println("Error monitoring position " + positionKey + ": " + e.getMessage());
             }
         }
+        return positionsToClose;
     }
     
-    /**
-     * Closes a specific position
-     */
-    public void closePosition(KiteConnect kiteConnect, String positionKey) 
-            throws KiteException, IOException {
-        
-        Position position = activePositions.get(positionKey);
-        if (position == null) {
-            return;
-        }
-        
-        try {
-            // Place buy order to close short position
-            OrderParams orderParams = new OrderParams();
-            orderParams.quantity = Math.abs(position.quantity);
-            orderParams.price = 0.0; // Market order
-            orderParams.exchange = Constants.EXCHANGE_NFO;
-            orderParams.tradingsymbol = position.tradingSymbol;
-            orderParams.transactionType = Constants.TRANSACTION_TYPE_BUY;
-            orderParams.orderType = Constants.ORDER_TYPE_MARKET;
-            orderParams.product = Constants.PRODUCT_MIS;
-            orderParams.validity = Constants.VALIDITY_DAY;
-            
-            Order order = kiteConnect.placeOrder(orderParams, Constants.VARIETY_REGULAR);
-            
-            System.out.println("Closed position " + position.tradingSymbol + 
-                             ", Order ID: " + order.orderId);
-            
-            // Remove from active positions
-            activePositions.remove(positionKey);
-            entryPrices.remove(positionKey);
-            orderIds.remove(positionKey);
-            
-        } catch (Exception e) {
-            System.err.println("Error closing position " + positionKey + ": " + e.getMessage());
-            throw e;
+    public void closePosition(String instrumentToken, double exitPrice, String reason) {
+        Position position = openPositions.remove(instrumentToken);
+        if (position != null) {
+            position.closePosition(exitPrice);
+            closedPositions.add(position);
+            dailyPnL.addAndGet(position.getRealizedPnL());
+            totalCapital.addAndGet(position.getRealizedPnL());
         }
     }
     
-    /**
-     * Exits all active positions
-     */
-    public void exitAllPositions(KiteConnect kiteConnect) throws KiteException, IOException {
-        System.out.println("Exiting all " + activePositions.size() + " positions...");
-        
-        // Create a copy of keys to avoid concurrent modification
-        Set<String> positionKeys = new HashSet<>(activePositions.keySet());
-        
-        for (String positionKey : positionKeys) {
-            try {
-                closePosition(kiteConnect, positionKey);
-                Thread.sleep(1000); // Small delay between orders
-            } catch (Exception e) {
-                System.err.println("Error exiting position " + positionKey + ": " + e.getMessage());
-            }
-        }
-        
-        System.out.println("All positions exited.");
+    public Map<String, Object> getDailyStats() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalCapital", totalCapital.get());
+        stats.put("dailyPnL", dailyPnL.get());
+        stats.put("openPositions", openPositions.size());
+        stats.put("totalUnrealizedPnL", openPositions.values().stream().mapToDouble(Position::getUnrealizedPnL).sum());
+        stats.put("portfolioExposure", openPositions.values().stream().mapToDouble(p -> p.getEntryPrice() * p.getQuantity()).sum());
+        stats.put("closedTradesToday", closedPositions.size());
+        return stats;
     }
     
-    /**
-     * Gets the current P&L for all positions
-     */
-    public double getTotalPnL(KiteConnect kiteConnect) throws KiteException, IOException {
-        double totalPnL = 0.0;
-        
-        for (Map.Entry<String, Position> entry : activePositions.entrySet()) {
-            String positionKey = entry.getKey();
-            Position position = entry.getValue();
-            
-            try {
-                String instrumentToken = positionKey.split("_")[0];
-                String[] instruments = {instrumentToken};
-                Map<String, Quote> quotes = kiteConnect.getQuote(instruments);
-                
-                if (quotes.containsKey(instrumentToken)) {
-                    Quote quote = quotes.get(instrumentToken);
-                    double currentPrice = quote.lastPrice;
-                    double entryPrice = entryPrices.get(positionKey);
-                    
-                    // P&L for short position: (entry_price - current_price) * quantity
-                    double positionPnL = (entryPrice - currentPrice) * Math.abs(position.quantity);
-                    totalPnL += positionPnL;
-                }
-            } catch (Exception e) {
-                System.err.println("Error calculating P&L for " + positionKey + ": " + e.getMessage());
-            }
-        }
-        
-        return totalPnL;
+    public void resetDailyCounters() {
+        dailyPnL.set(0);
+        closedPositions.clear();
     }
     
-    /**
-     * Gets trading symbol from instrument token and option type
-     */
-    private String getTradingSymbol(String instrumentToken, String optionType) {
-        // This is a placeholder - you'll need to implement proper mapping
-        // based on Zerodha's instrument master or use instrument lookup
-        return instrumentToken + "_" + optionType;
-    }
-    
-    /**
-     * Gets the number of active positions
-     */
-    public int getActivePositionCount() {
-        return activePositions.size();
-    }
-    
-    /**
-     * Checks if there are any active positions
-     */
-    public boolean hasActivePositions() {
-        return !activePositions.isEmpty();
-    }
-    
-    /**
-     * Gets details of all active positions
-     */
-    public void printPositionSummary(KiteConnect kiteConnect) {
-        if (activePositions.isEmpty()) {
-            System.out.println("No active positions.");
-            return;
-        }
-        
-        System.out.println("\n=== Position Summary ===");
-        try {
-            double totalPnL = getTotalPnL(kiteConnect);
-            System.out.println("Total P&L: ₹" + String.format("%.2f", totalPnL));
-            System.out.println("Active Positions: " + activePositions.size());
-            
-            for (Map.Entry<String, Position> entry : activePositions.entrySet()) {
-                String positionKey = entry.getKey();
-                Position position = entry.getValue();
-                double entryPrice = entryPrices.get(positionKey);
-                
-                System.out.println(String.format("- %s: Qty=%d, Entry=%.2f", 
-                                 position.tradingSymbol, position.quantity, entryPrice));
-            }
-        } catch (Exception e) {
-            System.err.println("Error printing position summary: " + e.getMessage());
-        }
-        System.out.println("========================\n");
-    }
+    public Map<String, Position> getOpenPositions() { return new HashMap<>(openPositions); }
+    public List<Position> getClosedPositions() { return new ArrayList<>(closedPositions); }
+    public double getTotalCapital() { return totalCapital.get(); }
+    public double getDailyPnL() { return dailyPnL.get(); }
 }

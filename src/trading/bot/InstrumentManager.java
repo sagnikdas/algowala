@@ -1,212 +1,174 @@
 package trading.bot;
 
-import com.zerodhatech.kiteconnect.KiteConnect;
-import com.zerodhatech.kiteconnect.kitehttp.exceptions.KiteException;
-import com.zerodhatech.models.Instrument;
-
-import java.io.IOException;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
+import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class InstrumentManager {
     
-    private Map<String, Instrument> instrumentMap = new HashMap<>();
-    private KiteConnect kiteConnect;
-    
-    public InstrumentManager(KiteConnect kiteConnect) {
-        this.kiteConnect = kiteConnect;
-    }
-    
-    /**
-     * Loads all NFO instruments and filters for current week Nifty options
-     */
-    public void loadInstruments() throws KiteException, IOException {
-        System.out.println("Loading NFO instruments...");
+    public static class Instrument {
+        private final String instrumentToken;
+        private final String tradingSymbol;
+        private final String name;
+        private final String exchange;
+        private final String segment;
+        private final double tickSize;
+        private final double lotSize;
+        private final boolean isActive;
         
-        // Get all NFO instruments
-        Instrument[] instruments = kiteConnect.getInstruments("NFO");
-        
-        // Filter for Nifty options of current week
-        String currentWeekExpiry = getCurrentWeekExpiry();
-        
-        for (Instrument instrument : instruments) {
-            if (instrument.name.equals("NIFTY") && 
-                instrument.instrumentType.equals("OPT") &&
-                instrument.expiry.toString().equals(currentWeekExpiry)) {
-                
-                String key = createInstrumentKey(instrument.strike.intValue(), 
-                                               instrument.instrumentType.equals("CE") ? "CE" : "PE");
-                instrumentMap.put(key, instrument);
-            }
+        public Instrument(String instrumentToken, String tradingSymbol, String name,
+                         String exchange, String segment, double tickSize, double lotSize) {
+            this.instrumentToken = instrumentToken;
+            this.tradingSymbol = tradingSymbol;
+            this.name = name;
+            this.exchange = exchange;
+            this.segment = segment;
+            this.tickSize = tickSize;
+            this.lotSize = lotSize;
+            this.isActive = true;
         }
         
-        System.out.println("Loaded " + instrumentMap.size() + " Nifty option instruments for expiry: " + currentWeekExpiry);
+        public String getInstrumentToken() { return instrumentToken; }
+        public String getTradingSymbol() { return tradingSymbol; }
+        public String getName() { return name; }
+        public String getExchange() { return exchange; }
+        public String getSegment() { return segment; }
+        public double getTickSize() { return tickSize; }
+        public double getLotSize() { return lotSize; }
+        public boolean isActive() { return isActive; }
     }
     
-    /**
-     * Gets the instrument token for a specific strike and option type
-     */
-    public String getInstrumentToken(int strike, String optionType) {
-        String key = createInstrumentKey(strike, optionType);
-        Instrument instrument = instrumentMap.get(key);
+    public static class LiveQuote {
+        private final String instrumentToken;
+        private final double lastPrice;
+        private final double open;
+        private final double high;
+        private final double low;
+        private final double close;
+        private final long volume;
+        private final double change;
+        private final double changePercent;
+        private final LocalDateTime timestamp;
         
+        public LiveQuote(String instrumentToken, double lastPrice, double open, 
+                        double high, double low, double close, long volume) {
+            this.instrumentToken = instrumentToken;
+            this.lastPrice = lastPrice;
+            this.open = open;
+            this.high = high;
+            this.low = low;
+            this.close = close;
+            this.volume = volume;
+            this.change = lastPrice - close;
+            this.changePercent = (change / close) * 100;
+            this.timestamp = LocalDateTime.now();
+        }
+        
+        public String getInstrumentToken() { return instrumentToken; }
+        public double getLastPrice() { return lastPrice; }
+        public double getOpen() { return open; }
+        public double getHigh() { return high; }
+        public double getLow() { return low; }
+        public double getClose() { return close; }
+        public long getVolume() { return volume; }
+        public double getChange() { return change; }
+        public double getChangePercent() { return changePercent; }
+        public LocalDateTime getTimestamp() { return timestamp; }
+    }
+    
+    private final Map<String, Instrument> instruments = new ConcurrentHashMap<>();
+    private final Map<String, String> symbolToToken = new ConcurrentHashMap<>();
+    private final Map<String, LiveQuote> liveQuotes = new ConcurrentHashMap<>();
+    private final Set<String> subscribedTokens = ConcurrentHashMap.newKeySet();
+    
+    public void initializeCommonInstruments() {
+        addInstrument("256265", "NIFTY 50", "NIFTY 50", "NSE", "INDICES", 0.05, 25);
+        addInstrument("260105", "NIFTY BANK", "NIFTY BANK", "NSE", "INDICES", 0.05, 15);
+        addInstrument("8045826", "NIFTY23SEPFUT", "NIFTY 50 SEP FUT", "NFO", "FUT", 0.05, 25);
+        addInstrument("8040706", "BANKNIFTY23SEPFUT", "BANK NIFTY SEP FUT", "NFO", "FUT", 0.05, 15);
+        
+        // Initialize with mock live data
+        updateLiveQuote("256265", 19800, 19750, 19850, 19720, 19780, 1000000);
+        updateLiveQuote("260105", 44500, 44400, 44600, 44350, 44480, 500000);
+        updateLiveQuote("8045826", 19850, 19800, 19900, 19770, 19830, 800000);
+        updateLiveQuote("8040706", 44600, 44550, 44700, 44500, 44580, 400000);
+    }
+    
+    public void addInstrument(String token, String symbol, String name, 
+                             String exchange, String segment, double tickSize, double lotSize) {
+        Instrument instrument = new Instrument(token, symbol, name, exchange, segment, tickSize, lotSize);
+        instruments.put(token, instrument);
+        symbolToToken.put(symbol.toUpperCase(), token);
+    }
+    
+    public Instrument getInstrumentByToken(String token) {
+        return instruments.get(token);
+    }
+    
+    public boolean subscribeToInstrument(String instrumentToken) {
+        Instrument instrument = instruments.get(instrumentToken);
+        if (instrument != null && instrument.isActive()) {
+            subscribedTokens.add(instrumentToken);
+            return true;
+        }
+        return false;
+    }
+    
+    public void updateLiveQuote(String instrumentToken, double lastPrice, double open,
+                               double high, double low, double close, long volume) {
+        if (subscribedTokens.contains(instrumentToken) || instruments.containsKey(instrumentToken)) {
+            LiveQuote quote = new LiveQuote(instrumentToken, lastPrice, open, high, low, close, volume);
+            liveQuotes.put(instrumentToken, quote);
+        }
+    }
+    
+    public LiveQuote getLiveQuote(String instrumentToken) {
+        return liveQuotes.get(instrumentToken);
+    }
+    
+    public Map<String, Double> getCurrentPrices() {
+        Map<String, Double> prices = new HashMap<>();
+        for (Map.Entry<String, LiveQuote> entry : liveQuotes.entrySet()) {
+            // Simulate live price changes
+            double basePrice = entry.getValue().getLastPrice();
+            double currentPrice = basePrice + (Math.random() - 0.5) * basePrice * 0.001; // 0.1% variation
+            prices.put(entry.getKey(), currentPrice);
+        }
+        return prices;
+    }
+    
+    public int calculateLotAdjustedQuantity(String instrumentToken, int desiredQuantity) {
+        Instrument instrument = instruments.get(instrumentToken);
         if (instrument != null) {
-            return String.valueOf(instrument.instrumentToken);
+            double lotSize = instrument.getLotSize();
+            return (int) (Math.floor(desiredQuantity / lotSize) * lotSize);
         }
-        
-        throw new RuntimeException("Instrument not found for strike: " + strike + " " + optionType);
+        return desiredQuantity;
     }
     
-    /**
-     * Gets the trading symbol for a specific strike and option type
-     */
-    public String getTradingSymbol(int strike, String optionType) {
-        String key = createInstrumentKey(strike, optionType);
-        Instrument instrument = instrumentMap.get(key);
-        
-        if (instrument != null) {
-            return instrument.tradingsymbol;
-        }
-        
-        throw new RuntimeException("Trading symbol not found for strike: " + strike + " " + optionType);
+    public List<String> getCPRWatchlist() {
+        return Arrays.asList("256265", "260105", "8045826", "8040706");
     }
     
-    /**
-     * Gets the complete instrument object for a specific strike and option type
-     */
-    public Instrument getInstrument(int strike, String optionType) {
-        String key = createInstrumentKey(strike, optionType);
-        Instrument instrument = instrumentMap.get(key);
+    public boolean isMarketOpen() {
+        LocalDateTime now = LocalDateTime.now();
+        int hour = now.getHour();
+        int minute = now.getMinute();
+        int dayOfWeek = now.getDayOfWeek().getValue();
         
-        if (instrument != null) {
-            return instrument;
-        }
+        boolean isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+        boolean isMarketHours = (hour == 9 && minute >= 15) || (hour >= 10 && hour < 15) || (hour == 15 && minute <= 30);
         
-        throw new RuntimeException("Instrument not found for strike: " + strike + " " + optionType);
+        return isWeekday && isMarketHours;
     }
     
-    /**
-     * Gets all available strikes for the current expiry
-     */
-    public List<Integer> getAvailableStrikes() {
-        return instrumentMap.values().stream()
-                .map(instrument -> instrument.strike.intValue())
-                .distinct()
-                .sorted()
-                .collect(Collectors.toList());
-    }
-    
-    /**
-     * Finds the closest available strike to the target price
-     */
-    public int findClosestStrike(double targetPrice) {
-        List<Integer> strikes = getAvailableStrikes();
-        
-        if (strikes.isEmpty()) {
-            throw new RuntimeException("No strikes available");
-        }
-        
-        int closestStrike = strikes.get(0);
-        double minDifference = Math.abs(targetPrice - closestStrike);
-        
-        for (int strike : strikes) {
-            double difference = Math.abs(targetPrice - strike);
-            if (difference < minDifference) {
-                minDifference = difference;
-                closestStrike = strike;
-            }
-        }
-        
-        return closestStrike;
-    }
-    
-    /**
-     * Gets strikes within a specific range of the target price
-     */
-    public List<Integer> getStrikesInRange(double targetPrice, double range) {
-        List<Integer> strikes = getAvailableStrikes();
-        
-        return strikes.stream()
-                .filter(strike -> Math.abs(strike - targetPrice) <= range)
-                .sorted((a, b) -> Double.compare(Math.abs(a - targetPrice), Math.abs(b - targetPrice)))
-                .collect(Collectors.toList());
-    }
-    
-    /**
-     * Checks if instruments are loaded
-     */
-    public boolean isLoaded() {
-        return !instrumentMap.isEmpty();
-    }
-    
-    /**
-     * Gets the count of loaded instruments
-     */
-    public int getInstrumentCount() {
-        return instrumentMap.size();
-    }
-    
-    /**
-     * Creates a unique key for instrument mapping
-     */
-    private String createInstrumentKey(int strike, String optionType) {
-        return strike + "_" + optionType;
-    }
-    
-    /**
-     * Gets the current week's expiry date for Nifty options
-     * Nifty weekly options expire on Thursdays
-     */
-    private String getCurrentWeekExpiry() {
-        LocalDate today = LocalDate.now();
-        LocalDate thursday = today;
-        
-        // Find the next Thursday (or today if it's Thursday)
-        while (thursday.getDayOfWeek().getValue() != 4) { // 4 = Thursday
-            thursday = thursday.plusDays(1);
-        }
-        
-        // If today is Friday or later in the week, get next Thursday
-        if (today.getDayOfWeek().getValue() > 4) {
-            thursday = thursday.plusDays(7);
-        }
-        
-        return thursday.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-    }
-    
-    /**
-     * Prints summary of loaded instruments
-     */
-    public void printInstrumentSummary() {
-        if (instrumentMap.isEmpty()) {
-            System.out.println("No instruments loaded.");
-            return;
-        }
-        
-        List<Integer> strikes = getAvailableStrikes();
-        System.out.println("\n=== Instrument Summary ===");
-        System.out.println("Total instruments loaded: " + instrumentMap.size());
-        System.out.println("Available strikes: " + strikes.size());
-        System.out.println("Strike range: " + strikes.get(0) + " to " + strikes.get(strikes.size() - 1));
-        System.out.println("Expiry date: " + getCurrentWeekExpiry());
-        System.out.println("==========================\n");
-    }
-    
-    /**
-     * Validates that required strikes are available
-     */
-    public boolean validateStrikesAvailable(List<Integer> requiredStrikes) {
-        List<Integer> availableStrikes = getAvailableStrikes();
-        
-        for (int strike : requiredStrikes) {
-            if (!availableStrikes.contains(strike)) {
-                System.err.println("Required strike not available: " + strike);
-                return false;
-            }
-        }
-        
-        return true;
+    public Map<String, Object> getMarketStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("isMarketOpen", isMarketOpen());
+        status.put("subscribedInstruments", subscribedTokens.size());
+        status.put("liveQuotesAvailable", liveQuotes.size());
+        status.put("totalInstruments", instruments.size());
+        status.put("lastUpdateTime", LocalDateTime.now());
+        return status;
     }
 }
