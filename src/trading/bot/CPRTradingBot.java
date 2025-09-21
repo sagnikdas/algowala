@@ -14,26 +14,32 @@ import historical.HistoricalDataFetcher;
 import login.ZerodhaAutoLogin;
 import model.CandleData;
 
+/**
+ * Main trading bot for CPR-based strategies.
+ */
 public class CPRTradingBot {
     private static final Logger logger = Logger.getLogger(CPRTradingBot.class.getName());
-    
+
     // Core components
     private final HistoricalDataFetcher historicalFetcher;
     private final CPRCalculator cprCalculator;
     private final InstrumentManager instrumentManager;
     private final PositionManager positionManager;
-    
+
     // Configuration
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
     private final Map<String, CPRLevels> dailyCPRCache = new ConcurrentHashMap<>();
     private volatile boolean isRunning = false;
     private volatile boolean isLoggedIn = false;
-    
+
     // Trading parameters
     private static final double INITIAL_CAPITAL = 500000; // 5 lakhs
     private static final double MAX_DAILY_LOSS_PERCENT = 2.0; // 2% max daily loss
     private static final double RISK_PER_TRADE_PERCENT = 1.0; // 1% risk per trade
-    
+
+    /**
+     * Constructs a CPRTradingBot with required dependencies.
+     */
     public CPRTradingBot(HistoricalDataFetcher historicalFetcher) {
         this.historicalFetcher = historicalFetcher;
         this.cprCalculator = new CPRCalculator();

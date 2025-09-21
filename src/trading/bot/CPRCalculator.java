@@ -1,40 +1,36 @@
 package trading.bot;
 
+/**
+ * Utility class for calculating Central Pivot Range (CPR) levels and market sentiment.
+ */
 public class CPRCalculator {
-    
     /**
-     * Calculates CPR (Central Pivot Range) levels based on previous day's OHLC data
-     * 
+     * Calculates CPR (Central Pivot Range) levels based on previous day's OHLC data.
      * @param high Previous day's high
      * @param low Previous day's low
      * @param close Previous day's close
      * @return CPRLevels object containing all calculated levels
      */
     public CPRLevels calculateCPR(double high, double low, double close) {
-        // Calculate Pivot Point
         double pivot = (high + low + close) / 3.0;
-        
-        // Calculate Support and Resistance levels
-        double r1 = (2 * pivot) - low;  // First Resistance
-        double s1 = (2 * pivot) - high; // First Support
-        double r2 = pivot + (high - low); // Second Resistance
-        double s2 = pivot - (high - low); // Second Support
-        double r3 = high + 2 * (pivot - low); // Third Resistance
-        double s3 = low - 2 * (high - pivot); // Third Support
-        
-        // Calculate CPR levels
-        double tc = (pivot - s1) + pivot; // Top Central (same as R1)
-        double bc = pivot - (r1 - pivot); // Bottom Central (same as S1)
-        
-        // PDH and PDL are simply the previous day's high and low
+        double r1 = (2 * pivot) - low;
+        double s1 = (2 * pivot) - high;
+        double r2 = pivot + (high - low);
+        double s2 = pivot - (high - low);
+        double r3 = high + 2 * (pivot - low);
+        double s3 = low - 2 * (high - pivot);
+        double tc = r1; // Top Central
+        double bc = s1; // Bottom Central
         double pdh = high;
         double pdl = low;
-        
         return new CPRLevels(pivot, r1, r2, r3, s1, s2, s3, tc, bc, pdh, pdl);
     }
-    
+
     /**
-     * Determines the market sentiment based on current price and CPR levels
+     * Determines the market sentiment based on current price and CPR levels.
+     * @param currentPrice Current market price
+     * @param cprLevels CPRLevels object
+     * @return Market sentiment as a string
      */
     public String getMarketSentiment(double currentPrice, CPRLevels cprLevels) {
         if (currentPrice > cprLevels.getR1()) {

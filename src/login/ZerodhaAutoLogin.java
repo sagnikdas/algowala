@@ -22,8 +22,20 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.*;
 
+/**
+ * Handles Zerodha login automation and access token retrieval.
+ */
 public class ZerodhaAutoLogin {
-
+    /**
+     * Performs Zerodha login using manual OTP and returns KiteConnect instance.
+     * @param apiKey Zerodha API key
+     * @param apiSecret Zerodha API secret
+     * @param userId Zerodha user ID
+     * @param userPassword Zerodha password
+     * @param headless Whether to run browser in headless mode
+     * @return KiteConnect instance
+     * @throws Exception on login failure
+     */
     public static KiteConnect zerodhaAutoLoginManualOtp(String apiKey, String apiSecret,
                                                         String userId, String userPassword,
                                                         boolean headless) throws Exception {

@@ -5,8 +5,19 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c2d25c29-7ab7-409e-9f62-d42be398e59d" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/.idea/copilot.data.migration.agent.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/copilot.data.migration.ask.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/copilot.data.migration.edit.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/copilotDiffState.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/historical/HistoricalDataFetcher.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/historical/HistoricalDataFetcher.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/login/ZerodhaAutoLogin.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/login/ZerodhaAutoLogin.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/model/CandleData.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/model/CandleData.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/trading/bot/CPRCalculator.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/trading/bot/CPRCalculator.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/trading/bot/CPRLevels.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/trading/bot/CPRLevels.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/trading/bot/CPRTradingBot.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/trading/bot/CPRTradingBot.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/trading/bot/InstrumentManager.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/trading/bot/InstrumentManager.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/trading/bot/PositionManager.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/trading/bot/PositionManager.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -27,6 +38,8 @@
     <setting file="jar://$MAVEN_REPOSITORY$/com/zerodhatech/kiteconnect/kiteconnect/3.5.1/kiteconnect-3.5.1.jar!/com/zerodhatech/kiteconnect/KiteConnect.class" root0="SKIP_INSPECTION" />
     <setting file="jar://$MAVEN_REPOSITORY$/com/zerodhatech/kiteconnect/kiteconnect/3.5.1/kiteconnect-3.5.1.jar!/com/zerodhatech/kiteconnect/kitehttp/KiteRequestHandler.class" root0="SKIP_INSPECTION" />
     <setting file="jar://$MAVEN_REPOSITORY$/com/zerodhatech/kiteconnect/kiteconnect/3.5.1/kiteconnect-3.5.1.jar!/com/zerodhatech/models/Profile.class" root0="SKIP_INSPECTION" />
+    <setting file="jar:///opt/homebrew/Cellar/openjdk@17/17.0.14/libexec/openjdk.jdk/Contents/Home/lib/src.zip!/java.base/java/lang/Runtime.java" root0="SKIP_INSPECTION" />
+    <setting file="jar:///opt/homebrew/Cellar/openjdk@17/17.0.14/libexec/openjdk.jdk/Contents/Home/lib/src.zip!/java.base/java/util/concurrent/ScheduledExecutorService.java" root0="SKIP_INSPECTION" />
   </component>
   <component name="MavenImportPreferences">
     <option name="generalSettings">

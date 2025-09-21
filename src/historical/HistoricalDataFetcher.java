@@ -17,13 +17,18 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonArray;
 import model.CandleData;
 
+/**
+ * Fetches historical OHLCV data from Kite API.
+ */
 public class HistoricalDataFetcher {
-
     private static final String API_BASE_URL = "https://api.kite.trade";
     private static final String API_KEY = "kbn0ca43nbzamzga"; // Replace with your actual API key
     private String accessToken;
 
-    // Load access token from JSON file
+    /**
+     * Loads access token from JSON file.
+     * @throws IOException if file read fails
+     */
     public void loadAccessToken() throws IOException {
         String jsonContent = Files.readString(Paths.get("login/access_token.json"));
         Gson gson = new Gson();
@@ -31,7 +36,17 @@ public class HistoricalDataFetcher {
         this.accessToken = jsonObject.get("access_token").getAsString();
     }
 
-    // Fetch historical data for an instrument
+    /**
+     * Fetches historical data for an instrument.
+     * @param instrumentToken Instrument token
+     * @param interval Data interval (e.g., day, minute)
+     * @param fromDate Start date/time
+     * @param toDate End date/time
+     * @param includeContinuous Whether to include continuous data
+     * @param includeOI Whether to include open interest
+     * @return List of CandleData
+     * @throws IOException, InterruptedException on API failure
+     */
     public List<CandleData> fetchHistoricalData(String instrumentToken, String interval,
                                                 LocalDateTime fromDate, LocalDateTime toDate,
                                                 boolean includeContinuous, boolean includeOI) throws IOException, InterruptedException {

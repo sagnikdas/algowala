@@ -1,14 +1,31 @@
 package trading.bot;
 
+/**
+ * Data class representing all calculated CPR levels and related metrics.
+ */
 public class CPRLevels {
     private final double pivot;
     private final double r1, r2, r3;
     private final double s1, s2, s3;
     private final double tc, bc; // Top Central, Bottom Central
     private final double pdh, pdl; // Previous Day High, Previous Day Low
-    
-    public CPRLevels(double pivot, double r1, double r2, double r3, 
-                     double s1, double s2, double s3, 
+
+    /**
+     * Constructs a CPRLevels object.
+     * @param pivot Pivot point
+     * @param r1 First resistance
+     * @param r2 Second resistance
+     * @param r3 Third resistance
+     * @param s1 First support
+     * @param s2 Second support
+     * @param s3 Third support
+     * @param tc Top central
+     * @param bc Bottom central
+     * @param pdh Previous day high
+     * @param pdl Previous day low
+     */
+    public CPRLevels(double pivot, double r1, double r2, double r3,
+                     double s1, double s2, double s3,
                      double tc, double bc, double pdh, double pdl) {
         this.pivot = pivot;
         this.r1 = r1;
@@ -22,7 +39,7 @@ public class CPRLevels {
         this.pdh = pdh;
         this.pdl = pdl;
     }
-    
+
     // Getters
     public double getPivot() { return pivot; }
     public double getR1() { return r1; }
@@ -35,35 +52,38 @@ public class CPRLevels {
     public double getBC() { return bc; }
     public double getPDH() { return pdh; }
     public double getPDL() { return pdl; }
-    
+
     /**
-     * Gets the CPR width (difference between TC and BC)
+     * Gets the CPR width (difference between TC and BC).
+     * @return CPR width
      */
     public double getCPRWidth() {
         return tc - bc;
     }
-    
+
     /**
-     * Determines if CPR is narrow (width < 12 points for Nifty)
+     * Determines if CPR is narrow (width < 12 points for Nifty).
+     * @return true if CPR is narrow, false otherwise
      */
     public boolean isNarrowCPR() {
         return getCPRWidth() < 12.0;
     }
-    
+
     /**
-     * Determines if CPR is wide (width > 25 points for Nifty)
+     * Determines if CPR is wide (width > 25 points for Nifty).
+     * @return true if CPR is wide, false otherwise
      */
     public boolean isWideCPR() {
         return getCPRWidth() > 25.0;
     }
-    
+
     /**
      * Gets the range between PDH and PDL
      */
     public double getPDRange() {
         return pdh - pdl;
     }
-    
+
     @Override
     public String toString() {
         return String.format(
