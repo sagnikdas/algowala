@@ -143,8 +143,8 @@ public class CPRTradingBot {
 
         String interval = "day"; // minute, 3minute, 5minute, 10minute, 15minute, 30minute, 60minute, day
 
-        LocalDateTime fromDate = LocalDateTime.of(2025, 8, 20, 9, 15, 0);
-        LocalDateTime toDate = LocalDateTime.of(2025, 9, 11, 15, 30, 0);
+        LocalDateTime fromDate = LocalDateTime.of(2025, 9, 19, 9, 15, 0);
+        LocalDateTime toDate = LocalDateTime.of(2025, 9, 19, 15, 30, 0);
 
         for (String instrumentToken : watchlist) {
             try {
